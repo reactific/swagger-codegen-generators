@@ -15,6 +15,7 @@ import io.swagger.codegen.CodegenProperty;
 import io.swagger.codegen.CodegenResponse;
 import io.swagger.codegen.CodegenSecurity;
 import io.swagger.codegen.SupportingFile;
+import io.swagger.codegen.handlebars.helpers.BaseItemsHelper;
 import io.swagger.codegen.handlebars.helpers.BracesHelper;
 import io.swagger.codegen.handlebars.helpers.HasHelper;
 import io.swagger.codegen.handlebars.helpers.HasNotHelper;
@@ -31,6 +32,7 @@ import io.swagger.v3.oas.models.media.BinarySchema;
 import io.swagger.v3.oas.models.media.BooleanSchema;
 import io.swagger.v3.oas.models.media.ByteArraySchema;
 import io.swagger.v3.oas.models.media.ComposedSchema;
+import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.DateSchema;
 import io.swagger.v3.oas.models.media.DateTimeSchema;
 import io.swagger.v3.oas.models.media.EmailSchema;
@@ -160,22 +162,30 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
             this.setTemplateDir((String) additionalProperties.get(CodegenConstants.TEMPLATE_DIR));
         }
 
-        //todo: replace hardcore string for constant on "CodegenConstans" class once publishing issue on codegen be resolved. (02-15-18)
-        if (additionalProperties.containsKey(/**fixme: CodegenConstants.TEMPLATE_VERSION*/ "templateVersion")) {
-            this.setTemplateVersion((String) additionalProperties.get(/**fixme: CodegenConstants.TEMPLATE_VERSION*/ "templateVersion"));
+        if (additionalProperties.containsKey(CodegenConstants.TEMPLATE_VERSION)) {
+            this.setTemplateVersion((String) additionalProperties.get(CodegenConstants.TEMPLATE_VERSION));
         }
 
         if (additionalProperties.containsKey(CodegenConstants.MODEL_PACKAGE)) {
             this.setModelPackage((String) additionalProperties.get(CodegenConstants.MODEL_PACKAGE));
+        } else if (StringUtils.isNotEmpty(modelPackage)) {
+            // not set in additionalProperties, add value from CodegenConfig in order to use it in templates
+            additionalProperties.put(CodegenConstants.MODEL_PACKAGE, modelPackage);
         }
 
         if (additionalProperties.containsKey(CodegenConstants.API_PACKAGE)) {
             this.setApiPackage((String) additionalProperties.get(CodegenConstants.API_PACKAGE));
+        } else if (StringUtils.isNotEmpty(apiPackage)) {
+            // not set in additionalProperties, add value from CodegenConfig in order to use it in templates
+            additionalProperties.put(CodegenConstants.API_PACKAGE, apiPackage);
         }
 
         if (additionalProperties.containsKey(CodegenConstants.SORT_PARAMS_BY_REQUIRED_FLAG)) {
             this.setSortParamsByRequiredFlag(Boolean.valueOf(additionalProperties
                     .get(CodegenConstants.SORT_PARAMS_BY_REQUIRED_FLAG).toString()));
+        } else if (sortParamsByRequiredFlag != null) {
+            // not set in additionalProperties, add value from CodegenConfig in order to use it in templates
+            additionalProperties.put(CodegenConstants.SORT_PARAMS_BY_REQUIRED_FLAG, sortParamsByRequiredFlag);
         }
 
         if (additionalProperties.containsKey(CodegenConstants.ENSURE_UNIQUE_PARAMS)) {
@@ -199,6 +209,14 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
         if (additionalProperties.containsKey(CodegenConstants.REMOVE_OPERATION_ID_PREFIX)) {
             this.setSortParamsByRequiredFlag(Boolean.valueOf(additionalProperties
                     .get(CodegenConstants.REMOVE_OPERATION_ID_PREFIX).toString()));
+        }
+
+        if (additionalProperties.containsKey(CodegenConstants.HIDE_GENERATION_TIMESTAMP)) {
+            this.setHideGenerationTimestamp(Boolean.valueOf(additionalProperties
+                    .get(CodegenConstants.HIDE_GENERATION_TIMESTAMP).toString()));
+        } else if(hideGenerationTimestamp != null) {
+            // not set in additionalProperties, add value from CodegenConfig in order to use it in templates
+            additionalProperties.put(CodegenConstants.HIDE_GENERATION_TIMESTAMP, hideGenerationTimestamp);
         }
     }
 
@@ -587,6 +605,10 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
 
     public void setApiPackage(String apiPackage) {
         this.apiPackage = apiPackage;
+    }
+
+    public Boolean getSortParamsByRequiredFlag() {
+        return sortParamsByRequiredFlag;
     }
 
     public void setSortParamsByRequiredFlag(Boolean sortParamsByRequiredFlag) {
@@ -1686,38 +1708,23 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
      * @return True if the inner most type is enum
      */
     protected Boolean isPropertyInnerMostEnum(CodegenProperty property) {
-        CodegenProperty currentProperty = property;
-        while (currentProperty != null
-                && (getBooleanValue(currentProperty, CodegenConstants.IS_MAP_CONTAINER_EXT_NAME)
-                || getBooleanValue(currentProperty, CodegenConstants.IS_LIST_CONTAINER_EXT_NAME))) {
-            currentProperty = currentProperty.items;
-        }
-        return currentProperty == null ? false : getBooleanValue(currentProperty, IS_ENUM_EXT_NAME);
+        CodegenProperty baseItem = BaseItemsHelper.getBaseItemsProperty(property);
+        return baseItem == null ? false : getBooleanValue(baseItem, IS_ENUM_EXT_NAME);
     }
+
+
 
     protected Map<String, Object> getInnerEnumAllowableValues(CodegenProperty property) {
-        CodegenProperty currentProperty = property;
-        boolean isMapContainer = getBooleanValue(property, CodegenConstants.IS_MAP_CONTAINER_EXT_NAME);
-        boolean isListContainer = getBooleanValue(property, CodegenConstants.IS_LIST_CONTAINER_EXT_NAME);
-        while (currentProperty != null && (isMapContainer || isListContainer)) {
-            currentProperty = currentProperty.items;
-        }
-
-        return currentProperty == null ? new HashMap<String, Object>() : currentProperty.allowableValues;
+        CodegenProperty baseItem = BaseItemsHelper.getBaseItemsProperty(property);
+        return baseItem == null ? new HashMap<String, Object>() : baseItem.allowableValues;
     }
-
 
     /**
      * Update datatypeWithEnum for array container
      * @param property Codegen property
      */
     protected void updateDataTypeWithEnumForArray(CodegenProperty property) {
-        CodegenProperty baseItem = property.items;
-        boolean isMapContainer = getBooleanValue(baseItem, CodegenConstants.IS_MAP_CONTAINER_EXT_NAME);
-        boolean isListContainer = getBooleanValue(baseItem, CodegenConstants.IS_LIST_CONTAINER_EXT_NAME);
-        while (baseItem != null && (isMapContainer || isListContainer)) {
-            baseItem = baseItem.items;
-        }
+        CodegenProperty baseItem = BaseItemsHelper.getBaseItemsProperty(property);
         if (baseItem != null) {
             // set both datatype and datetypeWithEnum as only the inner type is enum
             property.datatypeWithEnum = property.datatypeWithEnum.replace(baseItem.baseType, toEnumName(baseItem));
@@ -1738,12 +1745,7 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
      * @param property Codegen property
      */
     protected void updateDataTypeWithEnumForMap(CodegenProperty property) {
-        CodegenProperty baseItem = property.items;
-        boolean isMapContainer = getBooleanValue(baseItem, CodegenConstants.IS_MAP_CONTAINER_EXT_NAME);
-        boolean isListContainer = getBooleanValue(baseItem, CodegenConstants.IS_LIST_CONTAINER_EXT_NAME);
-        while (baseItem != null && (isMapContainer || isListContainer)) {
-            baseItem = baseItem.items;
-        }
+        CodegenProperty baseItem = BaseItemsHelper.getBaseItemsProperty(property);
 
         if (baseItem != null) {
             // set both datatype and datetypeWithEnum as only the inner type is enum
@@ -1929,14 +1931,14 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
 
         List<Parameter> parameters = operation.getParameters();
         CodegenParameter bodyParam = null;
-        List<CodegenParameter> allParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> bodyParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> pathParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> queryParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> headerParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> cookieParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> formParams = new ArrayList<CodegenParameter>();
-        List<CodegenParameter> requiredParams = new ArrayList<CodegenParameter>();
+        List<CodegenParameter> allParams = new ArrayList<>();
+        List<CodegenParameter> bodyParams = new ArrayList<>();
+        List<CodegenParameter> pathParams = new ArrayList<>();
+        List<CodegenParameter> queryParams = new ArrayList<>();
+        List<CodegenParameter> headerParams = new ArrayList<>();
+        List<CodegenParameter> cookieParams = new ArrayList<>();
+        List<CodegenParameter> formParams = new ArrayList<>();
+        List<CodegenParameter> requiredParams = new ArrayList<>();
 
         RequestBody body = operation.getRequestBody();
         if (body != null) {
@@ -1948,6 +1950,18 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
             bodyParam = fromRequestBody(body, schemas, imports);
             bodyParams.add(bodyParam);
             allParams.add(bodyParam);
+            if (containsFormContentType(body)) {
+                Schema schema = getSchemaFromBody(body);
+                final Map<String, Schema> propertyMap = schema.getProperties();
+                if (propertyMap != null && !propertyMap.isEmpty()) {
+                    for (String propertyName : propertyMap.keySet()) {
+                        CodegenParameter codegenParameter = fromParameter(new Parameter()
+                                .name(propertyName)
+                                .schema(propertyMap.get(propertyName)), imports);
+                        formParams.add(codegenParameter);
+                    }
+                }
+            }
         }
 
         if (parameters != null) {
@@ -2082,7 +2096,11 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
             if (responseSchema instanceof ArraySchema) {
                 ArraySchema arraySchema = (ArraySchema) responseSchema;
                 CodegenProperty innerProperty = fromProperty("response", arraySchema.getItems());
-                codegenResponse.baseType = innerProperty.baseType;
+                CodegenProperty innerCp = innerProperty;
+                while(innerCp != null) {
+                    codegenResponse.baseType = innerCp.baseType;
+                    innerCp = innerCp.items;
+                }
             } else {
                 if (codegenProperty.complexType != null) {
                     codegenResponse.baseType = codegenProperty.complexType;
@@ -2891,6 +2909,11 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
         for (Map.Entry<String, Schema> entry : allSchemas.entrySet()) {
             String swaggerName = entry.getKey();
             Schema schema = entry.getValue();
+
+            if (schema instanceof ArraySchema || schema instanceof MapSchema) {
+                continue;
+            }
+
             String schemaType = getTypeOfSchema(schema);
             if (schemaType != null && !schemaType.equals("object") && schema.getEnum() == null) {
                 aliases.put(swaggerName, schemaType);
@@ -3170,6 +3193,24 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
         return httpUserAgent;
     }
 
+    /**
+     * Hide generation timestamp
+     *
+     * @param hideGenerationTimestamp flag to indicates if the generation timestamp should be hidden or not
+     */
+    public void setHideGenerationTimestamp(Boolean hideGenerationTimestamp) {
+        this.hideGenerationTimestamp = hideGenerationTimestamp;
+    }
+
+    /**
+     * Hide generation timestamp
+     *
+     * @return if the generation timestamp should be hidden or not
+     */
+    public Boolean getHideGenerationTimestamp() {
+        return hideGenerationTimestamp;
+    }
+
     @SuppressWarnings("static-method")
     protected CliOption buildLibraryCliOption(Map<String, String> supportedLibraries) {
         StringBuilder sb = new StringBuilder("library template (sub-template) to use:");
@@ -3259,6 +3300,7 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
         handlebars.registerHelper(IsNotHelper.NAME, new IsNotHelper());
         handlebars.registerHelper(HasNotHelper.NAME, new HasNotHelper());
         handlebars.registerHelper(BracesHelper.NAME, new BracesHelper());
+        handlebars.registerHelper(BaseItemsHelper.NAME, new BaseItemsHelper());
     }
 
     @Override
@@ -3709,4 +3751,17 @@ public abstract class DefaultCodegenConfig implements CodegenConfig {
         }
         return false;
     }
+
+    private boolean containsFormContentType(RequestBody body) {
+        if (body == null) {
+            return false;
+        }
+        final Content content = body.getContent();
+        if (content == null || content.isEmpty()) {
+            return false;
+        }
+        return content.get("application/x-www-form-urlencoded") != null ||
+                content.get("multipart/form-data") != null;
+    }
+
 }
